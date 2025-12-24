@@ -1,0 +1,5 @@
+{
+  "name": "Physix Lab 3D",
+  "description": "A high-performance real-time physics sandbox featuring thousands of interactive objects and cloth-like structures.",
+  "requestFramePermissions": []
+}
