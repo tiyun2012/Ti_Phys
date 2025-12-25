@@ -24,9 +24,9 @@ const V_SWIRL = new THREE.Vector3();
 
 const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, onUpdate, onWarning, vortexEnabled, vortexStrength = 20, paused }) => {
   const rbRef = useRef<RapierRigidBody>(null);
-  // Use state to track mesh availability for TransformControls to avoid mounting before scene attachment
-  const [mesh, setMesh] = useState<THREE.Mesh | null>(null);
-  const [isTransforming, setIsTransforming] = useState(false);
+  const dummyRef = useRef<THREE.Group>(null); // External controller target
+  
+  const [isDragging, setIsDragging] = useState(false);
   const engineMode = engineState.mode;
 
   const meshAsset = MESH_ASSETS.find(m => m.id === data.assetId);
@@ -34,33 +34,72 @@ const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, 
   const materialAsset = MATERIAL_ASSETS.find(m => m.id === data.materialId) || MATERIAL_ASSETS[0];
   const physicsAsset = PHYSICS_ASSETS.find(p => p.id === data.physicsId);
 
-  // Sync position from state ONLY if we are paused or transforming
+  // 1. Sync Dummy to Data initially or when not selected/dragging
   useEffect(() => {
-    if (rbRef.current && (paused || isTransforming)) {
-      rbRef.current.setTranslation(new THREE.Vector3(...data.position), true);
-      const euler = new THREE.Euler(...data.rotation);
-      const quat = new THREE.Quaternion().setFromEuler(euler);
-      rbRef.current.setRotation(quat, true);
+    if (dummyRef.current && !isDragging) {
+      dummyRef.current.position.set(...data.position);
+      dummyRef.current.rotation.set(...data.rotation);
+      dummyRef.current.scale.set(...data.scale);
     }
-  }, [data.position, data.rotation, paused, isTransforming]);
+  }, [data.position, data.rotation, data.scale, isDragging]);
 
+  // 2. Sync RigidBody to Data (Initial or external updates)
+  useEffect(() => {
+    if (rbRef.current && !isDragging && paused) {
+       // If paused, we force the RB to the data position
+       rbRef.current.setTranslation(new THREE.Vector3(...data.position), true);
+       const euler = new THREE.Euler(...data.rotation);
+       const quat = new THREE.Quaternion().setFromEuler(euler);
+       rbRef.current.setRotation(quat, true);
+    }
+  }, [data.position, data.rotation, paused, isDragging]);
+
+  // 3. Frame Loop
   useFrame(() => {
-    if (!vortexEnabled || paused || isTransforming || !rbRef.current) return;
-    
-    const rb = rbRef.current;
-    if (rb.isDynamic()) {
-      const { x, y, z } = rb.translation();
-      
-      // Calculate pull
-      V_FORCE.set(V_CENTER.x - x, V_CENTER.y - y, V_CENTER.z - z);
-      V_FORCE.normalize().multiplyScalar(vortexStrength * 0.15);
-      
-      // Calculate swirl
-      V_SWIRL.set(-(V_CENTER.z - z), 0, V_CENTER.x - x);
-      V_SWIRL.normalize().multiplyScalar(vortexStrength * 0.4);
-      
-      V_FORCE.add(V_SWIRL);
-      rb.applyImpulse(V_FORCE, true);
+    if (!rbRef.current) return;
+
+    // Control Logic
+    if (isSelected && engineMode === 'EDITOR' && dummyRef.current) {
+        if (isDragging) {
+             // Dragging: Gizmo (Dummy) -> Physics (RB)
+             const targetPos = dummyRef.current.position;
+             const targetRot = dummyRef.current.rotation;
+             const targetQuat = new THREE.Quaternion().setFromEuler(targetRot);
+             
+             if (paused) {
+                 // Instant update if paused (teleport)
+                 rbRef.current.setTranslation(targetPos, true);
+                 rbRef.current.setRotation(targetQuat, true);
+             } else {
+                 // Kinematic update if running (physically interact)
+                 rbRef.current.setNextKinematicTranslation(targetPos);
+                 rbRef.current.setNextKinematicRotation(targetQuat);
+             }
+        } else if (!paused && rbRef.current.isDynamic()) {
+            // Selected but NOT Dragging (and running): Physics (RB) -> Gizmo (Dummy)
+            // Keep the gizmo attached to the moving object
+            const t = rbRef.current.translation();
+            const r = rbRef.current.rotation();
+            dummyRef.current.position.set(t.x, t.y, t.z);
+            dummyRef.current.quaternion.set(r.x, r.y, r.z, r.w);
+        }
+    }
+
+    // Vortex Logic (Only when simulating and not being dragged)
+    if (vortexEnabled && !paused && !isDragging) {
+      const rb = rbRef.current;
+      if (rb.isDynamic()) {
+        const { x, y, z } = rb.translation();
+        
+        V_FORCE.set(V_CENTER.x - x, V_CENTER.y - y, V_CENTER.z - z);
+        V_FORCE.normalize().multiplyScalar(vortexStrength * 0.15);
+        
+        V_SWIRL.set(-(V_CENTER.z - z), 0, V_CENTER.x - x);
+        V_SWIRL.normalize().multiplyScalar(vortexStrength * 0.4);
+        
+        V_FORCE.add(V_SWIRL);
+        rb.applyImpulse(V_FORCE, true);
+      }
     }
   });
 
@@ -92,80 +131,63 @@ const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, 
   }, [materialAsset, lightAsset, data.color]);
 
   const handleCollision = (event: any) => {
-    if (paused || isTransforming) return;
+    if (paused || isDragging) return;
     const impulse = event.totalForceMagnitude || 0;
     if (impulse > 60) {
       onWarning('KINETIC', `Stress Peak: ${impulse.toFixed(0)}N on ${data.name}`);
     }
   };
 
-  const handleTransformStart = () => {
-    setIsTransforming(true);
-    if (rbRef.current) {
-      // Set to kinematic to prevent physics simulation fighting the user drag
-      rbRef.current.setBodyType(2, true);
+  const handleDragStart = () => {
+      setIsDragging(true);
+      // Ensure we wake up the body if it was sleeping
+      rbRef.current?.wakeUp();
+  };
+  
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    if (dummyRef.current && rbRef.current) {
+        const { position, rotation, scale } = dummyRef.current;
+        onUpdate({
+            position: [position.x, position.y, position.z],
+            rotation: [rotation.x, rotation.y, rotation.z],
+            scale: [scale.x, scale.y, scale.z]
+        });
+        
+        // Wake up physics on release so it falls/moves immediately
+        rbRef.current.wakeUp();
     }
   };
 
-  const handleTransformEnd = () => {
-    setIsTransforming(false);
-    if (!mesh || !rbRef.current) return;
-    
-    // 1. Get the final world transform of the dragged mesh
-    const worldPos = new THREE.Vector3();
-    mesh.getWorldPosition(worldPos);
-    
-    const worldQuat = new THREE.Quaternion();
-    mesh.getWorldQuaternion(worldQuat);
-    
-    const worldRot = new THREE.Euler();
-    worldRot.setFromQuaternion(worldQuat);
-    
-    const scale = mesh.scale.clone();
-    
-    // 2. Move the parent RigidBody to this new world position/rotation
-    rbRef.current.setTranslation(worldPos, true);
-    rbRef.current.setRotation(worldQuat, true);
-    
-    // 3. Reset the mesh local transform to zero. 
-    // Since the mesh is a child of the RigidBody, if we don't reset this, 
-    // the mesh will have the local offset + the new parent position, causing a double-move.
-    mesh.position.set(0, 0, 0);
-    mesh.rotation.set(0, 0, 0);
-    mesh.quaternion.set(0, 0, 0, 1);
-    
-    // 4. Update state
-    onUpdate({ 
-        position: [worldPos.x, worldPos.y, worldPos.z],
-        rotation: [worldRot.x, worldRot.y, worldRot.z],
-        scale: [scale.x, scale.y, scale.z]
-    });
-    
-    // 5. Restore physics
-    const type = (physicsAsset && !paused) ? 0 : 1; 
-    rbRef.current.setBodyType(type, true); 
-  };
-
-  // Logic: In Editor Mode, objects are Dynamic if sim is not paused, unless being transformed.
-  const isDynamic = physicsAsset && !paused && !isTransforming;
+  // Logic: 
+  // - If Paused: Kinematic (Frozen in place, but movable via Gizmo)
+  // - If Dragging: Kinematic (Controlled by Gizmo)
+  // - Otherwise: Dynamic (Controlled by Physics)
+  const rigidBodyType = (isDragging || paused) ? 'kinematicPosition' : 'dynamic';
 
   return (
     <>
+      {/* Dummy Object for Gizmo Control - Outside the Physics World */}
+      {isSelected && engineMode === 'EDITOR' && (
+        <group ref={dummyRef} position={data.position} rotation={data.rotation as any} scale={data.scale} />
+      )}
+
+      {/* Actual Physics Object */}
       <RigidBody
         ref={rbRef}
         position={data.position}
         rotation={data.rotation as any}
-        type={isDynamic ? 'dynamic' : (isTransforming ? 'kinematicPosition' : 'fixed')}
+        type={rigidBodyType} 
         colliders={false} 
         density={physicsAsset?.density ?? 1}
         friction={physicsAsset?.friction ?? 0.5}
         restitution={physicsAsset?.restitution ?? 0.2}
         onCollisionEnter={handleCollision}
         onContactForce={handleCollision}
-        key={`${data.id}-${paused ? 'paused' : 'live'}`}
+        // Force remount only if switching between play/editor to reset state, but keep stable during selection
+        key={`${data.id}-${engineMode === 'PLAY' ? 'play' : 'edit'}`} 
       >
         <mesh
-          ref={setMesh}
           geometry={geometry}
           material={material}
           scale={data.scale}
@@ -174,6 +196,17 @@ const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, 
           onClick={(e) => {
             if (engineMode !== 'PLAY') {
                e.stopPropagation();
+               // Immediate sync on click to prevent jumps if physics moved it
+               if (rbRef.current) {
+                  const t = rbRef.current.translation();
+                  const r = rbRef.current.rotation();
+                  const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(r.x, r.y, r.z, r.w));
+                  // We update the data, which updates the dummy position via useEffect
+                  onUpdate({ 
+                      position: [t.x, t.y, t.z], 
+                      rotation: [euler.x, euler.y, euler.z] 
+                  });
+               }
                onSelect();
             }
           }}
@@ -198,12 +231,13 @@ const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, 
         )}
       </RigidBody>
 
-      {isSelected && engineMode === 'EDITOR' && mesh && (
+      {/* Gizmo attached to Dummy */}
+      {isSelected && engineMode === 'EDITOR' && dummyRef.current && (
         <TransformControls 
-            object={mesh} 
+            object={dummyRef.current} 
             mode={engineState.transformMode} 
-            onMouseDown={handleTransformStart}
-            onMouseUp={handleTransformEnd}
+            onMouseDown={handleDragStart}
+            onMouseUp={handleDragEnd}
         />
       )}
     </>
