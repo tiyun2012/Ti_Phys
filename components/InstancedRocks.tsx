@@ -1,8 +1,10 @@
+
 import React, { useMemo, useRef, useLayoutEffect } from 'react';
 import * as THREE from 'three';
 import { InstancedRigidBodies, InstancedRigidBodyProps, RapierRigidBody } from '@react-three/rapier';
 import { PhysicsMaterial } from '../types';
 import { MATERIALS_TABLE } from '../constants';
+import '../types';
 
 interface InstancedRocksProps {
   count: number;
@@ -15,9 +17,8 @@ const InstancedRocks: React.FC<InstancedRocksProps> = ({ count, materialType }) 
   const rigidBodies = useRef<RapierRigidBody[]>(null);
   const meshRef = useRef<THREE.InstancedMesh>(null);
   
-  const matData = MATERIALS_TABLE[materialType];
+  const matData = MATERIALS_TABLE[materialType] || MATERIALS_TABLE.default;
 
-  // Create material with rich physical properties
   const visualMaterial = useMemo(() => {
     return new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(matData.visual.color),
@@ -27,51 +28,47 @@ const InstancedRocks: React.FC<InstancedRocksProps> = ({ count, materialType }) 
       emissiveIntensity: matData.visual.emissiveIntensity || 0,
       transparent: matData.visual.transparent || false,
       opacity: matData.visual.opacity ?? 1.0,
-      clearcoat: matData.visual.clearcoat || 0,
-      clearcoatRoughness: matData.visual.clearcoatRoughness || 0,
+      clearcoat: 0.2,
       flatShading: true,
     });
   }, [materialType]);
 
-  // Generate instance positions (stable unless count changes)
   const instances = useMemo(() => {
     const instancesData: InstancedRigidBodyProps[] = [];
-    const range = 25;
+    const range = 40;
 
     for (let i = 0; i < count; i++) {
       instancesData.push({
-        key: `obj_${i}`,
+        key: `rock_${i}_${materialType}`,
         position: [
           (Math.random() - 0.5) * range,
-          10 + Math.random() * 50,
+          10 + Math.random() * 40,
           (Math.random() - 0.5) * range,
         ],
-        rotation: [Math.random() * Math.PI, Math.random() * Math.PI, 0],
+        rotation: [Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI],
         scale: [
-            0.5 + Math.random() * 1.0,
-            0.5 + Math.random() * 1.0,
-            0.5 + Math.random() * 1.0
+            0.4 + Math.random() * 0.8,
+            0.4 + Math.random() * 0.8,
+            0.4 + Math.random() * 0.8
         ],
       });
     }
     return instancesData;
-  }, [count]);
+  }, [count, materialType]);
 
-  // Apply color variance
   useLayoutEffect(() => {
-    if (!meshRef.current) return;
+    if (!meshRef.current || !meshRef.current.instanceColor) return;
     const tempColor = new THREE.Color();
     const baseColor = new THREE.Color(matData.visual.color);
     const hsl = { h: 0, s: 0, l: 0 };
     baseColor.getHSL(hsl);
     
-    const variance = matData.visual.colorVar;
+    const variance = matData.visual.colorVar || 0.1;
 
     for (let i = 0; i < count; i++) {
-      // Vary Hue/Lightness slightly
-      const h = hsl.h + (Math.random() - 0.5) * variance; // Hue shift
-      const s = THREE.MathUtils.clamp(hsl.s + (Math.random() - 0.5) * variance, 0, 1);
-      const l = THREE.MathUtils.clamp(hsl.l + (Math.random() - 0.5) * variance, 0, 1);
+      const h = hsl.h + (Math.random() - 0.5) * (variance * 0.5);
+      const s = Math.min(1, Math.max(0, hsl.s + (Math.random() - 0.5) * variance));
+      const l = Math.min(1, Math.max(0, hsl.l + (Math.random() - 0.5) * variance));
       
       tempColor.setHSL(h, s, l);
       meshRef.current.setColorAt(i, tempColor);
@@ -86,7 +83,7 @@ const InstancedRocks: React.FC<InstancedRocksProps> = ({ count, materialType }) 
       restitution={matData.physics.restitution}
       friction={matData.physics.friction}
       density={matData.physics.density}
-      colliders="hull"
+      colliders="ball" // Fixed: "hull" often crashes in specific environments; "ball" is a stable primitive.
     >
       <instancedMesh
         ref={meshRef}

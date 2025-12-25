@@ -1,7 +1,10 @@
+
 import React, { useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { RigidBody, RapierRigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
+// Import types to ensure global JSX augmentation for Three.js elements is active
+import '../types';
 
 const MouseShooter: React.FC = () => {
   const { camera, pointer } = useThree();

@@ -1,7 +1,10 @@
+
 import React, { useMemo, useRef, useLayoutEffect } from 'react';
 import * as THREE from 'three';
 import { useRapier, RigidBody, useSphericalJoint } from '@react-three/rapier';
 import { useFrame } from '@react-three/fiber';
+// Import types to ensure global JSX augmentation for Three.js elements is active
+import '../types';
 
 // A single link in the chain/net
 const Link = React.forwardRef<any, { position: [number, number, number], fixed?: boolean }>(({ position, fixed }, ref) => {

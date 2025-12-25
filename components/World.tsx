@@ -1,9 +1,12 @@
+
 import React from 'react';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { SimulationConfig, EditorConfig, LevelObject, SimulationWarning } from '../types';
 import InstancedRocks from './InstancedRocks';
 import ClothNet from './ClothNet';
 import LevelEditor from './LevelEditor';
+// Import types to ensure global JSX augmentation for Three.js elements is active
+import '../types';
 
 interface WorldProps {
   config: SimulationConfig;

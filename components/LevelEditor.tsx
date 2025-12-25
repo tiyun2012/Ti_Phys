@@ -1,10 +1,12 @@
+
 import React, { useMemo, useRef, useState } from 'react';
-import { RigidBody, RapierRigidBody, CollisionEnterHandler } from '@react-three/rapier';
+import { RigidBody, RapierRigidBody, CollisionEnterHandler, BallCollider, CuboidCollider } from '@react-three/rapier';
 import { ThreeEvent } from '@react-three/fiber';
 import { TransformControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { EditorConfig, LevelObject, SimulationWarning } from '../types';
 import { MATERIALS_TABLE } from '../constants';
+import '../types';
 
 interface LevelEditorProps {
   config: EditorConfig;
@@ -131,21 +133,14 @@ const SingleLevelObject: React.FC<SingleLevelObjectProps> = React.memo(({ data, 
         }
     };
 
-    // CONFLICT DETECTION LOGIC
     const handleCollision: CollisionEnterHandler = (event) => {
       const impulse = event.totalForceMagnitude || 0;
-      
-      // High Kinetic Conflict
       if (impulse > 25) {
         onTriggerConflict('KINETIC', `Extreme Impact: ${impulse.toFixed(2)}N detected.`);
       }
-
-      // Void Material Conflict
       if (data.material === 'void') {
         onTriggerConflict('VOID', 'Singularity interaction detected in local space.');
       }
-      
-      // Thermal Material Conflict (Magma)
       if (data.material === 'magma' && impulse > 5) {
         onTriggerConflict('THERMAL', 'Thermal transfer overflow during collision.');
       }
@@ -160,7 +155,7 @@ const SingleLevelObject: React.FC<SingleLevelObjectProps> = React.memo(({ data, 
                 restitution={matData.physics.restitution}
                 friction={matData.physics.friction}
                 density={matData.physics.density}
-                colliders={data.shape === 'sphere' || data.shape === 'rock' ? 'hull' : 'cuboid'}
+                colliders={false} // Disable auto-collider to avoid dispatcher errors
                 onCollisionEnter={handleCollision}
                 onContactForce={handleCollision}
             >
@@ -183,6 +178,12 @@ const SingleLevelObject: React.FC<SingleLevelObjectProps> = React.memo(({ data, 
                         </mesh>
                     )}
                 </mesh>
+                
+                {/* Explicit Colliders */}
+                {data.shape === 'sphere' ? <BallCollider args={[0.6]} /> :
+                 data.shape === 'cube' ? <CuboidCollider args={[0.5, 0.5, 0.5]} /> :
+                 <BallCollider args={[0.7]} /> // Default for rock/others
+                }
             </RigidBody>
 
             {isSelected && isEditing && (
