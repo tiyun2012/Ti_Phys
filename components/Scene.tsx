@@ -2,20 +2,26 @@ import React, { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, Sky, Stats } from '@react-three/drei';
 import { Physics } from '@react-three/rapier';
-import { SimulationConfig } from '../types';
+import { SimulationConfig, EditorConfig, LevelObject, SimulationWarning } from '../types';
 import World from './World';
 
 interface SceneProps {
   config: SimulationConfig;
+  editorConfig: EditorConfig;
+  levelObjects: LevelObject[];
+  onAddObject: (obj: LevelObject) => void;
+  onUpdateObject: (id: string, updates: Partial<LevelObject>) => void;
+  onSelectObject: (id: string | null) => void;
+  onTriggerConflict: (type: SimulationWarning['type'], message: string) => void;
 }
 
-const Scene: React.FC<SceneProps> = ({ config }) => {
+const Scene: React.FC<SceneProps> = ({ config, editorConfig, levelObjects, onAddObject, onUpdateObject, onSelectObject, onTriggerConflict }) => {
   return (
     <Canvas
       shadows
       camera={{ position: [0, 15, 25], fov: 50 }}
       className="w-full h-full bg-black"
-      dpr={[1, 1.5]} // Optimize pixel ratio for performance
+      dpr={[1, 1.5]}
     >
       <Suspense fallback={null}>
         <Environment preset="city" />
@@ -27,23 +33,26 @@ const Scene: React.FC<SceneProps> = ({ config }) => {
           intensity={1.5} 
           castShadow 
           shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-20}
-          shadow-camera-right={20}
-          shadow-camera-top={20}
-          shadow-camera-bottom={-20}
         />
 
         <Physics 
           gravity={config.gravity} 
           paused={config.paused} 
           debug={config.debug}
-          timeStep="vary" // Smoother visual on variable framerates
         >
-          <World config={config} />
+          <World 
+            config={config} 
+            editorConfig={editorConfig} 
+            levelObjects={levelObjects} 
+            onAddObject={onAddObject}
+            onUpdateObject={onUpdateObject}
+            onSelectObject={onSelectObject}
+            onTriggerConflict={onTriggerConflict}
+          />
         </Physics>
         
-        <OrbitControls makeDefault />
-        <Stats className="!left-auto !right-0 !top-auto !bottom-0" />
+        <OrbitControls makeDefault enabled={!editorConfig.active || !editorConfig.selectedObjectId} />
+        <Stats className="!left-auto !right-0 !top-auto !bottom-0 opacity-20 hover:opacity-100 transition-opacity" />
       </Suspense>
     </Canvas>
   );
