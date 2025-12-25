@@ -1,32 +1,30 @@
 
-import React, { useMemo, useRef, useLayoutEffect } from 'react';
+import React, { useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { useRapier, RigidBody, useSphericalJoint } from '@react-three/rapier';
-import { useFrame } from '@react-three/fiber';
-// Import types to ensure global JSX augmentation for Three.js elements is active
+import { RigidBody, useSphericalJoint } from '@react-three/rapier';
+import { EngineMode } from '../types';
 import '../types';
 
-// A single link in the chain/net
-const Link = React.forwardRef<any, { position: [number, number, number], fixed?: boolean }>(({ position, fixed }, ref) => {
+const Link = React.forwardRef<any, { position: [number, number, number], fixed?: boolean, engineMode: EngineMode }>(({ position, fixed, engineMode }, ref) => {
   return (
     <RigidBody
       ref={ref}
       position={position}
       colliders="cuboid"
-      type={fixed ? 'fixed' : 'dynamic'}
+      // If in Editor, everything is fixed. If in Sim, only anchors are fixed.
+      type={(fixed || engineMode === 'EDITOR') ? 'fixed' : 'dynamic'}
       linearDamping={0.5}
       angularDamping={0.5}
       density={0.5}
     >
       <mesh castShadow receiveShadow>
         <boxGeometry args={[0.4, 0.1, 0.4]} />
-        <meshStandardMaterial color={fixed ? '#ff4444' : '#44aaff'} />
+        <meshStandardMaterial color={fixed ? '#ff4444' : '#44aaff'} roughness={0.3} metalness={0.6} />
       </mesh>
     </RigidBody>
   );
 });
 
-// Helper component to connect two bodies with a joint
 interface JointConnectionProps {
   bodyA: React.RefObject<any>;
   bodyB: React.RefObject<any>;
@@ -41,15 +39,14 @@ const JointConnection: React.FC<JointConnectionProps> = ({ bodyA, bodyB, anchorA
 
 interface ClothNetProps {
   position: [number, number, number];
+  engineMode: EngineMode;
 }
 
-const ClothNet: React.FC<ClothNetProps> = ({ position }) => {
+const ClothNet: React.FC<ClothNetProps> = ({ position, engineMode }) => {
   const rows = 8;
   const cols = 8;
   const spacing = 0.6;
   
-  // We need refs for all bodies to connect them
-  // Creating a 2D array of refs
   const bodyRefs = useMemo(() => {
     const refs: React.RefObject<any>[][] = [];
     for (let r = 0; r < rows; r++) {
@@ -65,28 +62,27 @@ const ClothNet: React.FC<ClothNetProps> = ({ position }) => {
   const nodes = [];
   const joints = [];
 
-  // Generate Nodes
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const isFixed = r === 0; // Top row fixed
+      const isAnchor = r === 0; 
       const x = (c - cols / 2) * spacing;
-      const y = -r * spacing; // Hang down
+      const y = -r * spacing; 
       const z = 0;
       
       nodes.push(
         <Link
-          key={`node-${r}-${c}`}
+          key={`node-${r}-${c}-${engineMode}`}
           ref={bodyRefs[r][c]}
           position={[position[0] + x, position[1] + y, position[2] + z]}
-          fixed={isFixed}
+          fixed={isAnchor}
+          engineMode={engineMode}
         />
       );
 
-      // Connect to left neighbor
       if (c > 0) {
         joints.push(
           <JointConnection
-            key={`joint-h-${r}-${c}`}
+            key={`joint-h-${r}-${c}-${engineMode}`}
             bodyA={bodyRefs[r][c - 1]}
             bodyB={bodyRefs[r][c]}
             anchorA={[spacing/2, 0, 0]} 
@@ -95,11 +91,10 @@ const ClothNet: React.FC<ClothNetProps> = ({ position }) => {
         );
       }
 
-      // Connect to top neighbor
       if (r > 0) {
         joints.push(
           <JointConnection
-            key={`joint-v-${r}-${c}`}
+            key={`joint-v-${r}-${c}-${engineMode}`}
             bodyA={bodyRefs[r - 1][c]}
             bodyB={bodyRefs[r][c]}
             anchorA={[0, -spacing/2, 0]} 
@@ -111,7 +106,7 @@ const ClothNet: React.FC<ClothNetProps> = ({ position }) => {
   }
 
   return (
-    <group>
+    <group key={`cloth-${engineMode}`}>
       {nodes}
       {joints}
     </group>

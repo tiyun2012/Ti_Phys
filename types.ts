@@ -87,6 +87,9 @@ export interface SimulationConfig {
   rockMaterial: PhysicsMaterial;
   clothEnabled: boolean;
   paused: boolean;
+  vortexEnabled: boolean;
+  vortexStrength: number;
+  precisionMode: boolean;
 }
 
 export interface EditorConfig {
@@ -107,6 +110,6 @@ export interface LevelObject {
 
 export interface SimulationWarning {
   id: string;
-  type: 'KINETIC' | 'VOID' | 'THERMAL';
+  type: 'KINETIC' | 'VOID' | 'THERMAL' | 'STRESS';
   message: string;
 }

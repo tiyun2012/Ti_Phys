@@ -8,9 +8,10 @@ interface OutlinerProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onClear: () => void;
 }
 
-const Outliner: React.FC<OutlinerProps> = ({ objects, selectedId, onSelect, onDelete }) => {
+const Outliner: React.FC<OutlinerProps> = ({ objects, selectedId, onSelect, onDelete, onClear }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredObjects = objects.filter(obj => 
@@ -24,9 +25,18 @@ const Outliner: React.FC<OutlinerProps> = ({ objects, selectedId, onSelect, onDe
         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 flex items-center gap-2">
           <Hash size={10} /> Outliner
         </span>
-        <span className="text-[9px] font-mono text-cyan-600 bg-cyan-600/10 px-1.5 rounded">
-          {objects.length} Actors
-        </span>
+        <div className="flex items-center gap-2">
+            <span className="text-[9px] font-mono text-cyan-600 bg-cyan-600/10 px-1.5 rounded">
+                {objects.length} Actors
+            </span>
+            <button 
+                onClick={onClear} 
+                className="text-gray-600 hover:text-red-500 transition-colors p-1"
+                title="Clear All Objects"
+            >
+                <Trash2 size={12} />
+            </button>
+        </div>
       </div>
 
       <div className="p-2">

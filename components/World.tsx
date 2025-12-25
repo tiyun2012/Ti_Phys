@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import { SimulationConfig, EditorConfig, LevelObject, SimulationWarning } from '../types';
+import { SimulationConfig, EditorConfig, LevelObject, SimulationWarning, EngineMode } from '../types';
 import InstancedRocks from './InstancedRocks';
 import ClothNet from './ClothNet';
 import LevelEditor from './LevelEditor';
@@ -16,9 +16,11 @@ interface WorldProps {
   onUpdateObject: (id: string, updates: Partial<LevelObject>) => void;
   onSelectObject: (id: string | null) => void;
   onTriggerConflict: (type: SimulationWarning['type'], message: string) => void;
+  // Fix: Added engineMode to WorldProps to satisfy child component requirements.
+  engineMode: EngineMode;
 }
 
-const World: React.FC<WorldProps> = ({ config, editorConfig, levelObjects, onAddObject, onUpdateObject, onSelectObject, onTriggerConflict }) => {
+const World: React.FC<WorldProps> = ({ config, editorConfig, levelObjects, onAddObject, onUpdateObject, onSelectObject, onTriggerConflict, engineMode }) => {
   return (
     <>
       <LevelEditor 
@@ -50,9 +52,10 @@ const World: React.FC<WorldProps> = ({ config, editorConfig, levelObjects, onAdd
         key={`${config.rockCount}-${config.rockMaterial}`} 
         count={config.rockCount} 
         materialType={config.rockMaterial}
+        engineMode={engineMode}
       />
       
-      {config.clothEnabled && <ClothNet position={[0, 10, 0]} />}
+      {config.clothEnabled && <ClothNet position={[0, 10, 0]} engineMode={engineMode} />}
     </>
   );
 };

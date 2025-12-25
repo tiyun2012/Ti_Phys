@@ -2,40 +2,37 @@
 import React, { Suspense, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Environment, Grid, ContactShadows, Sky } from '@react-three/drei';
-import { Physics } from '@react-three/rapier';
-import { SceneObject, EngineState, Asset, SimulationConfig } from '../types';
+import { Physics, RigidBody } from '@react-three/rapier';
+import { SceneObject, EngineState, Asset, SimulationConfig, SimulationWarning } from '../types';
 import Actor from './Actor';
 import InstancedRocks from './InstancedRocks';
 import ClothNet from './ClothNet';
 import MouseShooter from './MouseShooter';
 import * as THREE from 'three';
-import '../types';
 
 interface SceneProps {
   objects: SceneObject[];
   engineState: EngineState;
   simConfig: SimulationConfig;
+  rockSeed: number;
   onSelect: (id: string | null) => void;
   onUpdate: (id: string, updates: Partial<SceneObject>) => void;
   onSpawn: (asset: Asset, pos: [number, number, number]) => void;
+  onWarning: (type: SimulationWarning['type'], message: string) => void;
 }
 
-/**
- * Internal component to sync Three.js state with a ref accessible to the DOM drop handler.
- */
 const StateBridge: React.FC<{ bridgeRef: React.MutableRefObject<any> }> = ({ bridgeRef }) => {
   const state = useThree();
   bridgeRef.current = state;
   return null;
 };
 
-const Scene: React.FC<SceneProps> = ({ objects, engineState, simConfig, onSelect, onUpdate, onSpawn }) => {
+const Scene: React.FC<SceneProps> = ({ objects, engineState, simConfig, rockSeed, onSelect, onUpdate, onSpawn, onWarning }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const threeBridgeRef = useRef<{ camera: THREE.Camera; gl: THREE.WebGLRenderer } | null>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -54,20 +51,16 @@ const Scene: React.FC<SceneProps> = ({ objects, engineState, simConfig, onSelect
     const vector = new THREE.Vector3(x, y, 0.5);
     vector.unproject(bridge.camera);
     const dir = vector.sub(bridge.camera.position).normalize();
-    
-    // Intersection with Y=0 plane
-    // Plane: n.(p - p0) = 0 where n=[0,1,0] and p0=[0,0,0]
-    // Ray: p = origin + dir * t
-    // t = - (origin.y) / dir.y
     const t = -bridge.camera.position.y / dir.y;
     
     if (t > 0) {
       const pos = bridge.camera.position.clone().add(dir.multiplyScalar(t));
-      onSpawn(asset, [pos.x, 0.5, pos.z]);
+      onSpawn(asset, [pos.x, pos.y + 2, pos.z]); // Spawn slightly above floor
     }
   };
 
-  const isSimulating = engineState.mode !== 'EDITOR' && !simConfig.paused;
+  // Physics is now ONLY paused if the user explicitly pauses it
+  const isSimulating = !simConfig.paused;
 
   return (
     <div 
@@ -78,9 +71,15 @@ const Scene: React.FC<SceneProps> = ({ objects, engineState, simConfig, onSelect
     >
       <Canvas
         shadows
-        camera={{ position: [20, 15, 20], fov: 50 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
-        dpr={[1, 2]}
+        camera={{ position: [25, 20, 25], fov: 45 }}
+        gl={{ 
+            antialias: true, 
+            powerPreference: 'high-performance', 
+            stencil: false, 
+            depth: true,
+            alpha: false 
+        }}
+        dpr={[1, 1.5]}
       >
         <StateBridge bridgeRef={threeBridgeRef} />
         <Suspense fallback={null}>
@@ -88,11 +87,11 @@ const Scene: React.FC<SceneProps> = ({ objects, engineState, simConfig, onSelect
           
           <Grid 
             infiniteGrid 
-            fadeDistance={100} 
-            fadeStrength={5} 
+            fadeDistance={120} 
+            fadeStrength={8} 
             cellSize={1} 
             sectionSize={10} 
-            sectionColor="#222" 
+            sectionColor="#333" 
             cellColor="#111" 
             position={[0, -0.01, 0]}
           />
@@ -100,9 +99,8 @@ const Scene: React.FC<SceneProps> = ({ objects, engineState, simConfig, onSelect
           <Physics 
             paused={!isSimulating} 
             gravity={[0, -9.81, 0]}
-            timeStep="variadic"
+            timeStep={simConfig.precisionMode ? 1/120 : 1/60}
           >
-            {/* Placed Actors */}
             {objects.map((obj) => (
               <Actor 
                 key={obj.id}
@@ -111,38 +109,57 @@ const Scene: React.FC<SceneProps> = ({ objects, engineState, simConfig, onSelect
                 engineState={engineState}
                 onSelect={() => onSelect(obj.id)}
                 onUpdate={(updates) => onUpdate(obj.id, updates)}
+                onWarning={onWarning}
+                vortexEnabled={simConfig.vortexEnabled}
+                vortexStrength={simConfig.vortexStrength}
+                paused={simConfig.paused}
               />
             ))}
 
-            {/* High Volume Simulation Objects */}
-            {(engineState.mode === 'SIMULATE' || engineState.mode === 'PLAY') && (
-               <>
-                  <InstancedRocks 
-                    count={simConfig.rockCount} 
-                    materialType={simConfig.rockMaterial} 
-                  />
-                  {simConfig.clothEnabled && <ClothNet position={[0, 15, 0]} />}
-               </>
+            <InstancedRocks 
+              count={simConfig.rockCount} 
+              materialType={simConfig.rockMaterial} 
+              engineMode={engineState.mode}
+              seed={rockSeed}
+              vortexEnabled={simConfig.vortexEnabled}
+              vortexStrength={simConfig.vortexStrength}
+            />
+            
+            {simConfig.clothEnabled && (
+              <ClothNet 
+                position={[0, 18, 0]} 
+                engineMode={engineState.mode === 'EDITOR' ? (simConfig.paused ? 'EDITOR' : 'SIMULATE') : engineState.mode} 
+              />
             )}
 
-            {/* Game Mode Features */}
             {engineState.mode === 'PLAY' && <MouseShooter />}
 
-            {/* Ground Collision */}
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]} receiveShadow>
-              <planeGeometry args={[1000, 1000]} />
-              <meshStandardMaterial color="#050505" roughness={1} metalness={0} />
-            </mesh>
+            <RigidBody type="fixed" restitution={0.2} friction={1}>
+              <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]} receiveShadow>
+                <planeGeometry args={[200, 200]} />
+                <meshStandardMaterial color="#020202" roughness={1} metalness={0} />
+              </mesh>
+            </RigidBody>
           </Physics>
+
+          {simConfig.vortexEnabled && (
+            <group position={[0, 5, 0]}>
+              <mesh>
+                <torusGeometry args={[8, 0.05, 16, 100]} />
+                <meshBasicMaterial color="#00ffff" transparent opacity={0.1} />
+              </mesh>
+              <pointLight intensity={20} color="#00ffff" distance={30} />
+            </group>
+          )}
 
           <Environment preset="night" />
           <OrbitControls 
             makeDefault 
             enabled={engineState.mode !== 'PLAY'} 
-            dampingFactor={0.05}
-            maxPolarAngle={Math.PI / 2.05}
+            dampingFactor={0.1}
+            maxPolarAngle={Math.PI / 2.1}
           />
-          <ContactShadows opacity={0.6} scale={100} blur={2} far={15} color="#000" />
+          <ContactShadows opacity={0.7} scale={100} blur={3} far={20} color="#000" />
         </Suspense>
       </Canvas>
     </div>

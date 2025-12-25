@@ -1,6 +1,6 @@
 
 import React, { useMemo, useRef, useState } from 'react';
-import { RigidBody, RapierRigidBody, CollisionEnterHandler, BallCollider, CuboidCollider } from '@react-three/rapier';
+import { RigidBody, RapierRigidBody, CollisionEnterHandler, BallCollider, CuboidCollider, ContactForceHandler } from '@react-three/rapier';
 import { ThreeEvent } from '@react-three/fiber';
 import { TransformControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -133,7 +133,8 @@ const SingleLevelObject: React.FC<SingleLevelObjectProps> = React.memo(({ data, 
         }
     };
 
-    const handleCollision: CollisionEnterHandler = (event) => {
+    // Fix: Using any type to allow shared usage of collision and force event data which contain different properties.
+    const handleCollision = (event: any) => {
       const impulse = event.totalForceMagnitude || 0;
       if (impulse > 25) {
         onTriggerConflict('KINETIC', `Extreme Impact: ${impulse.toFixed(2)}N detected.`);
