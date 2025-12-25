@@ -24,7 +24,8 @@ const V_SWIRL = new THREE.Vector3();
 
 const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, onUpdate, onWarning, vortexEnabled, vortexStrength = 20, paused }) => {
   const rbRef = useRef<RapierRigidBody>(null);
-  const meshRef = useRef<THREE.Mesh>(null);
+  // Use state to track mesh availability for TransformControls to avoid mounting before scene attachment
+  const [mesh, setMesh] = useState<THREE.Mesh | null>(null);
   const [isTransforming, setIsTransforming] = useState(false);
   const engineMode = engineState.mode;
 
@@ -108,19 +109,19 @@ const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, 
 
   const handleTransformEnd = () => {
     setIsTransforming(false);
-    if (!meshRef.current || !rbRef.current) return;
+    if (!mesh || !rbRef.current) return;
     
     // 1. Get the final world transform of the dragged mesh
     const worldPos = new THREE.Vector3();
-    meshRef.current.getWorldPosition(worldPos);
+    mesh.getWorldPosition(worldPos);
     
     const worldQuat = new THREE.Quaternion();
-    meshRef.current.getWorldQuaternion(worldQuat);
+    mesh.getWorldQuaternion(worldQuat);
     
     const worldRot = new THREE.Euler();
     worldRot.setFromQuaternion(worldQuat);
     
-    const scale = meshRef.current.scale.clone();
+    const scale = mesh.scale.clone();
     
     // 2. Move the parent RigidBody to this new world position/rotation
     rbRef.current.setTranslation(worldPos, true);
@@ -129,9 +130,9 @@ const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, 
     // 3. Reset the mesh local transform to zero. 
     // Since the mesh is a child of the RigidBody, if we don't reset this, 
     // the mesh will have the local offset + the new parent position, causing a double-move.
-    meshRef.current.position.set(0, 0, 0);
-    meshRef.current.rotation.set(0, 0, 0);
-    meshRef.current.quaternion.set(0, 0, 0, 1);
+    mesh.position.set(0, 0, 0);
+    mesh.rotation.set(0, 0, 0);
+    mesh.quaternion.set(0, 0, 0, 1);
     
     // 4. Update state
     onUpdate({ 
@@ -164,7 +165,7 @@ const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, 
         key={`${data.id}-${paused ? 'paused' : 'live'}`}
       >
         <mesh
-          ref={meshRef}
+          ref={setMesh}
           geometry={geometry}
           material={material}
           scale={data.scale}
@@ -197,9 +198,9 @@ const Actor: React.FC<ActorProps> = ({ data, isSelected, engineState, onSelect, 
         )}
       </RigidBody>
 
-      {isSelected && engineMode === 'EDITOR' && (
+      {isSelected && engineMode === 'EDITOR' && mesh && (
         <TransformControls 
-            object={meshRef.current as any} 
+            object={mesh} 
             mode={engineState.transformMode} 
             onMouseDown={handleTransformStart}
             onMouseUp={handleTransformEnd}
